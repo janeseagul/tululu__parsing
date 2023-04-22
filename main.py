@@ -47,7 +47,7 @@ def download_book_cover(cover_url, folder='Images/'):
     return filepath
 
 
-def fetch_book_piece(page_url):
+def parse_book_page(page_url):
     response = requests.get(page_url)
     response.raise_for_status()
 
@@ -56,12 +56,14 @@ def fetch_book_piece(page_url):
     img_tag = soup.find('div', class_='bookimage').find('img')['src']
     comments = soup.find_all('div', class_='texts')
     comments_tag = [tag.find('span').text for tag in comments]
+    genres = soup.find('span', class_='d_book').find_all('a')
+    genres_tag = [tag.text for tag in genres]
 
     title_tag = title_tag.split('   ::   ')
     book_title = title_tag[0].strip()
     book_author = title_tag[1].strip()
 
-    return book_title, img_tag, '\n'.join(comments_tag)
+    return book_title, img_tag, '\n'.join(comments_tag), genres_tag
 
 
 def check_for_redirect(response):
@@ -75,7 +77,7 @@ def main():
         try:
             url_pattern = urljoin(site_link, f'txt.php?=id={book_id}')
             page_url = urljoin(site_link, f'/b{book_id}')
-            filename, cover_url, book_comments = fetch_book_piece(page_url)
+            filename, cover_url, book_comments, book_genres = parse_book_page(page_url)
             cover_url = urljoin(site_link, cover_url)
 
             download_txt(url_pattern, filename, book_id)
