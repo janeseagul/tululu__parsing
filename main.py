@@ -1,93 +1,125 @@
+from time import sleep
+import sys
 import requests
 from pathlib import Path
 from pathvalidate import sanitize_filename
 from bs4 import BeautifulSoup
-import lxml
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import urljoin
+import argparse
 
 
-def download_txt(url, filename, number, folder='Books/'):
-    """Функция для скачивания текстовых файлов.
-    Args:
-        url (str): Cсылка на текст, который хочется скачать.
-        filename (str): Имя файла, с которым сохранять.
-        folder (str): Папка, куда сохранять.
-    Returns:
-        str: Путь до файла, куда сохранён текст.
-    """
-    Path(f'./{folder}').mkdir(parents=True, exist_ok=True)
-    filename = sanitize_filename(filename)
-    filepath = Path(f'./{folder}/{number}.{filename}.txt')
+def get_book_page(book_id):
+    site = 'https://tululu.org/'
+    url = urljoin(site, f'b{book_id}/')
 
     response = requests.get(url)
     response.raise_for_status()
-
     check_for_redirect(response)
 
-    with open(filepath, 'wb') as file:
-        file.write(response.content)
-
-    return filepath
-
-
-def download_book_cover(cover_url, folder='Images/'):
-    Path(f'./{folder}').mkdir(exist_ok=True)
-
-    filename = unquote(urlparse(cover_url)).path.split('/')[-1]
-    filename = sanitize_filename(filename)
-    filepath = Path(f'./{folder}/{filename}')
-    response = requests.get(cover_url)
-    response.raise_for_status()
-
-    check_for_redirect(response)
-
-    with open(filepath, 'wb') as file:
-        file.write(response.content)
-
-    return filepath
-
-
-def parse_book_page(page_url):
-    response = requests.get(page_url)
-    response.raise_for_status()
-
-    soup = BeautifulSoup(response.text, 'lxml')
-    title_tag = soup.find('body').find('table').find('td', class_='ow_px_td').find('div').find('h1').text
-    img_tag = soup.find('div', class_='bookimage').find('img')['src']
-    comments = soup.find_all('div', class_='texts')
-    comments_tag = [tag.find('span').text for tag in comments]
-    genres = soup.find('span', class_='d_book').find_all('a')
-    genres_tag = [tag.text for tag in genres]
-
-    title_tag = title_tag.split('   ::   ')
-    book_title = title_tag[0].strip()
-    book_author = title_tag[1].strip()
-
-    return book_title, img_tag, '\n'.join(comments_tag), genres_tag
+    return response
 
 
 def check_for_redirect(response):
     if response.history:
-        raise requests.exceptions.HTTPError
+        raise requests.HTTPError
+
+
+def make_parser():
+    parser = argparse.ArgumentParser(description='Скрипт для скачивания книг с сайта tululu.org ')
+    parser.add_argument('start_index', help='С какого книги нужно начать скачивание', type=int)
+    parser.add_argument('end_index', help='Какой книгой нужно завершить скачивание', type=int)
+    return parser
+
+
+def parse_book_page(response):
+    soup = BeautifulSoup(response.text, 'lxml')
+
+    title_tag = soup.find('h1')
+    book_title, author = title_tag.text.split('::')
+    book_title = book_title.strip()
+
+    cover_image = soup.find('div', class_='bookimage').find('img')
+    cover_image_url = urljoin(response.url, cover_image['src'])
+
+    comments_tag = soup.find_all('div', class_='texts')
+    comments = '\n'.join([tag.find('span').text for tag in comments_tag])
+
+    book_genre_tag = soup.find('span', class_='d_book').find_all('a')
+    book_genres = [tag.text for tag in book_genre_tag]
+
+    return book_title, cover_image_url, comments, book_genres
+
+
+def download_book_txt(book_id, filename, folder='Books/'):
+    url = 'https://tululu.org/txt.php'
+    payload = {'id': book_id}
+    Path(f'./{folder}').mkdir(parents=True, exist_ok=True)
+
+    response = requests.get(url, params=payload)
+    response.raise_for_status()
+    check_for_redirect(response)
+
+    filepath = Path(f'./{folder}/{sanitize_filename(filename)}.txt')
+
+    with open(filepath, 'wb') as file:
+        file.write(response.content)
+
+    return filepath
+
+
+def download_book_cover(url, filename, folder='Images/'):
+    Path(f'./{folder}').mkdir(parents=True, exist_ok=True)
+
+    response = requests.get(url)
+    response.raise_for_status()
+    check_for_redirect(response)
+
+    filepath = Path(f'./{folder}/{sanitize_filename(filename)}')
+
+    with open(filepath, 'wb') as file:
+        file.write(response.content)
+
+    return filepath
 
 
 def main():
-    site_link = 'https://tululu.org/'
-    for book_id in range(1, 11):
-        try:
-            url_pattern = urljoin(site_link, f'txt.php?=id={book_id}')
-            page_url = urljoin(site_link, f'/b{book_id}')
-            filename, cover_url, book_comments, book_genres = parse_book_page(page_url)
-            cover_url = urljoin(site_link, cover_url)
+    connection_waiting_seconds = 10
 
-            download_txt(url_pattern, filename, book_id)
-            download_book_cover(cover_url)
-        except requests.exceptions.HTTPError:
-            print(f"Can't create book {filename}, it does not exist!")
-        except IndexError:
-            print(f"Can't create book {filename}, it does not exist!")
-        except AttributeError:
-            print(f"Can't create book {filename}, it does not exist!")
+    parser = make_parser()
+    if len(sys.argv) < 3:
+        parser.print_help()
+    args = parser.parse_args()
+
+    for book_id in range(args.start_index, args.end_index + 1):
+        is_connected = True
+        tries_to_connect = 5
+
+        while tries_to_connect > 0:
+            try:
+                response = get_book_page(book_id)
+                book_title, cover_image_url, book_comments, book_genres = parse_book_page(response)
+                txt_name = f'{book_id}. {book_title}'
+
+                print(download_book_txt(book_id, txt_name))
+                print(download_book_cover(cover_image_url, str(book_id)))
+                print(book_genres) if book_genres else print('Для этой книги нет жанра')
+                print(book_comments) if book_comments else print('У этой книги нет комментариев')
+                break
+            except requests.ConnectionError:
+                if is_connected:
+                    is_connected = False
+                    print(f'Нет соединения')
+                else:
+                    print('Соединение не установлено')
+                    print(f'Retrying connection via {connection_waiting_seconds} seconds.')
+                    sleep(connection_waiting_seconds)
+            except requests.HTTPError:
+                print(f"Невозможно создать {txt_name}")
+                break
+            except Exception as error:
+                print(f'Unexpected error: {error}')
+                print(f'Ошибка загрузки "{txt_name}"')
+            tries_to_connect -= 1
 
 
 if __name__ == '__main__':
