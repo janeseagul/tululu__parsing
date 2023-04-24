@@ -83,7 +83,7 @@ def download_book_cover(url, filename, folder='Images/'):
 
 
 def main():
-    connection_waiting_seconds = 10
+    connection_waiting_sec = 10
 
     parser = make_parser()
     if len(sys.argv) < 3:
@@ -111,14 +111,11 @@ def main():
                     print(f'Нет соединения')
                 else:
                     print('Соединение не установлено')
-                    print(f'Retrying connection via {connection_waiting_seconds} seconds.')
-                    sleep(connection_waiting_seconds)
+                    print(f'Retrying connection via {connection_waiting_sec} seconds.')
+                    sleep(connection_waiting_sec)
             except requests.HTTPError:
                 print(f"Невозможно создать {txt_name}")
                 break
-            except Exception as error:
-                print(f'Unexpected error: {error}')
-                print(f'Ошибка загрузки "{txt_name}"')
             tries_to_connect -= 1
 
 
